@@ -5,7 +5,7 @@
 ;; Author: Sébastien Gross <seb•ɑƬ•chezwam•ɖɵʈ•org>
 ;; Keywords: emacs, 
 ;; Created: 2013-04-07
-;; Last changed: 2013-04-08 18:25:12
+;; Last changed: 2013-11-13 12:31:24
 ;; Licence: WTFPL, grab your copy here: http://sam.zoy.org/wtfpl/
 
 ;; This file is NOT part of GNU Emacs.
@@ -42,7 +42,13 @@
           (SELECT GROUP_CONCAT(ZABCDEMAILADDRESS.ZADDRESS)
                   FROM ZABCDEMAILADDRESS
                   WHERE ZABCDEMAILADDRESS.ZOWNER = ZABCDRECORD.Z_PK)
-           AS EMAIL
+          AS EMAIL,
+          (SELECT GROUP_CONCAT(ZNAME)
+                  FROM ZABCDRECORD AS ZABCDR
+                  WHERE ZABCDR.Z_PK IN (SELECT Z_15PARENTGROUPS1
+                        FROM Z_19PARENTGROUPS
+                        WHERE Z_19CONTACTS=ZABCDRECORD.Z_PK))
+          AS GROUPS
     FROM ZABCDRECORD
     WHERE NOT(EMAIL IS NULL);"
   "Query to run")
@@ -106,6 +112,118 @@ contacts would be destroyed."
 		      cmd-buf (car cmd-line) (cdr cmd-line))))
     (process-put proc :cmd-buf cmd-buf)
     (set-process-sentinel proc 'osx-contacts-run-sentinel)))
+
+
+
+(defun osx-contacts-fetch()
+  ""
+  (with-temp-buffer
+    (call-process
+     osx-contacts-sqlite-bin nil
+     (current-buffer) nil
+     (expand-file-name osx-contacts-base)
+     osx-contacts-query)
+    (loop for l in (split-string
+		    (buffer-substring-no-properties
+		     (point-min) (point-max))
+		    "\n" t)
+	  nconc (destructuring-bind
+		      (first-name name nick email groups)
+		      (split-string l "|")
+		  (loop for e in (split-string email "," t)
+			collect
+			(ietf-drums-make-address
+			 (if (string= "" nick)
+			     (concat first-name " " name)
+			   (concat first-name " " name " (" nick ")"))
+			 e))))))
+
+(defun osx-contacts-thing-at-point-bounds-of-email-address ()
+  "Return a cons of begin and end position of email address at
+point, including full name."
+  (save-excursion
+    (let* ((search-point (point))
+	   (start (re-search-backward "[:,]" (line-beginning-position) 'move))
+	   (dummy (goto-char search-point))
+	   (end   (re-search-forward  "[:,]" (line-end-position) t)))
+      (setq start
+	    (progn
+	      (goto-char (if start (+ 1 start)
+			   (line-beginning-position)))
+	      (skip-chars-forward "[ \t]" (point-at-eol))
+	      (point)))
+      (unless end (setq end (line-end-position)))
+      (cons start end))))
+ 
+(defun osx-contacts-thing-at-point-email-address-maybe (&optional bounds)
+  "Return full email address at point."
+  (let ((bounds
+	 (or bounds
+	     (osx-contacts-thing-at-point-bounds-of-email-address))))
+    (when (and bounds (not (= (car bounds) (cdr bounds))))
+      (buffer-substring-no-properties (car bounds) (cdr bounds)))))
+
+(defun osx-contacts-thing-at-point-email-address (&optional bounds)
+  "Return full email address at point."
+  (let* ((email-address-text (osx-contacts-thing-at-point-email-address-maybe bounds)))
+    (when email-address-text
+      (mail-header-parse-address email-address-text))))
+
+(defun osx-contacts-header-at-point ()
+  "Find which header is at point"
+  (unless (message-in-body-p)
+    (save-restriction
+      (save-excursion
+	(mail-header-narrow-to-field)
+	(goto-char (point-min))
+	(let ((colon (search-forward ":" (point-at-eol) t)))
+	  (when colon
+	    (downcase
+	     (buffer-substring-no-properties
+	      (point-min) (- colon 1)))))))))
+
+;;;###autoload
+(defun osx-contacts-complete-address ()
+  "Complete email address."
+  (interactive)
+  (if (member
+	 (osx-contacts-header-at-point)
+	 '("to" "cc" "bcc"))
+      (let* ((bounds (osx-contacts-thing-at-point-bounds-of-email-address))
+	     (email-at-point
+	      ;;(or (osx-contacts-thing-at-point-email-address bounds)
+	      (osx-contacts-thing-at-point-email-address-maybe bounds))
+	     (email
+	      (completing-read "Email: " (osx-contacts-fetch) nil t email-at-point)))
+	(when email
+	  (save-restriction
+	    (widen)
+	    (narrow-to-region (car bounds) (cdr bounds))
+	    (delete-region (point-min) (point-max)) 
+	    (goto-char (point-min))
+	    (insert email))))
+    (when (message-in-body-p)
+      (indent-relative))))
+
+
+;; http://www.mactech.com/articles/mactech/Vol.21/21.10/ScriptingAddressBook/index.html
+(defun osx-contacts-add (&optional text)
+  ""
+  (interactive)
+  (let* ((text (or text (osx-contacts-thing-at-point-email-address-maybe)))
+	 (email-cons (mail-header-parse-address text))
+	 (address (car email-cons))
+	 (name (cdr email-cons))
+	 (script (format "
+tell application \"Contacts\"
+   set thePerson to make new person with properties {first name:\"%s\", last name:\"%s\"}
+   make new email at end of emails of thePerson with properties  {label:\"Work\", value:\"%s\"}
+   save addressbook
+end tell" name name address)))
+    (do-applescript script)))
+      
+		  
+
 
 (provide 'osx-contacts)
 
