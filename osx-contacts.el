@@ -45,9 +45,9 @@
           AS EMAIL,
           (SELECT GROUP_CONCAT(ZNAME)
                   FROM ZABCDRECORD AS ZABCDR
-                  WHERE ZABCDR.Z_PK IN (SELECT Z_15PARENTGROUPS1
-                        FROM Z_19PARENTGROUPS
-                        WHERE Z_19CONTACTS=ZABCDRECORD.Z_PK))
+                  WHERE ZABCDR.Z_PK IN (SELECT Z_17PARENTGROUPS1
+                        FROM Z_21PARENTGROUPS
+                        WHERE Z_21CONTACTS=ZABCDRECORD.Z_PK))
           AS GROUPS
     FROM ZABCDRECORD
     WHERE NOT(EMAIL IS NULL);"
