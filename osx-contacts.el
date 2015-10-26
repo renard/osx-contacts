@@ -5,7 +5,7 @@
 ;; Author: Sébastien Gross <seb•ɑƬ•chezwam•ɖɵʈ•org>
 ;; Keywords: emacs, 
 ;; Created: 2013-04-07
-;; Last changed: 2013-11-13 12:31:24
+;; Last changed: 2015-10-26 17:51:58
 ;; Licence: WTFPL, grab your copy here: http://sam.zoy.org/wtfpl/
 
 ;; This file is NOT part of GNU Emacs.
@@ -35,8 +35,21 @@
   :group 'osx-contacts
   :type 'string)
 
+(defvar osx-contacts-query-args
+  (let* ((os-version (split-string
+		     (shell-command-to-string "sw_vers -productVersion")
+		     "\\.\\|\n" t))
+	 (major-version (string-to-int (nth 1 os-version))))
+    
+    (cond
+     ((< major-version 10) '(15 19 19))
+     ((>= major-version 10) '(17 21 21))))
+
+  "Arguments to provide to `osx-contacts-query'")
+
 (defvar osx-contacts-query
-  "SELECT ZABCDRECORD.ZFIRSTNAME,
+  (apply #'format 
+   "SELECT ZABCDRECORD.ZFIRSTNAME,
           ZABCDRECORD.ZLASTNAME,
           ZABCDRECORD.ZNICKNAME,
           (SELECT GROUP_CONCAT(ZABCDEMAILADDRESS.ZADDRESS)
@@ -45,12 +58,12 @@
           AS EMAIL,
           (SELECT GROUP_CONCAT(ZNAME)
                   FROM ZABCDRECORD AS ZABCDR
-                  WHERE ZABCDR.Z_PK IN (SELECT Z_15PARENTGROUPS1
-                        FROM Z_19PARENTGROUPS
-                        WHERE Z_19CONTACTS=ZABCDRECORD.Z_PK))
+                  WHERE ZABCDR.Z_PK IN (SELECT Z_%sPARENTGROUPS1
+                        FROM Z_%sPARENTGROUPS
+                        WHERE Z_%sCONTACTS=ZABCDRECORD.Z_PK))
           AS GROUPS
     FROM ZABCDRECORD
-    WHERE NOT(EMAIL IS NULL);"
+    WHERE NOT(EMAIL IS NULL);" osx-contacts-query-args)
   "Query to run")
 
 
